@@ -16,14 +16,15 @@
 package boomer
 
 import (
+	"bytes"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"time"
 )
@@ -37,9 +38,11 @@ type result struct {
 
 type Boomer struct {
 	// Request is the request to be made.
-	Request *http.Request
+	Url     string
+	Method  string
+	Headers *http.Header
 
-	RequestBody string
+	RequestBody []byte
 
 	// N is the total number of requests to make.
 	N int
@@ -96,7 +99,7 @@ func (b *Boomer) makeRequest(c *http.Client) {
 	var size int64
 	var code int
 
-	resp, err := c.Do(cloneRequest(b.Request, b.RequestBody))
+	resp, err := c.Do(b.cloneRequest())
 	if err == nil {
 		size = resp.ContentLength
 		code = resp.StatusCode
@@ -152,15 +155,16 @@ func (b *Boomer) runWorkers() {
 
 // cloneRequest returns a clone of the provided *http.Request.
 // The clone is a shallow copy of the struct and its Header map.
-func cloneRequest(r *http.Request, body string) *http.Request {
-	// shallow copy of the struct
-	r2 := new(http.Request)
-	*r2 = *r
-	// deep copy of the Header
-	r2.Header = make(http.Header, len(r.Header))
-	for k, s := range r.Header {
-		r2.Header[k] = append([]string(nil), s...)
+func (b *Boomer) cloneRequest() *http.Request {
+	req, err := http.NewRequest(b.Method, b.Url, bytes.NewReader(b.RequestBody))
+	if err != nil {
+		fmt.Println(err)
+		return nil
 	}
-	r2.Body = ioutil.NopCloser(strings.NewReader(body))
-	return r2
+	fmt.Println(req.Header)
+	for k, s := range *b.Headers {
+		req.Header.Set(k, s[0])
+	}
+	fmt.Println(req.Header)
+	return req
 }

@@ -15,8 +15,10 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
+	"gopkg.in/mgo.v2/bson"
 	"net/http"
 	gourl "net/url"
 	"os"
@@ -32,30 +34,21 @@ const (
 	authRegexp   = `^(.+):([^\s].+)`
 )
 
-type headerSlice []string
-
-func (h *headerSlice) String() string {
-	return fmt.Sprintf("%s", *h)
-}
-
-func (h *headerSlice) Set(value string) error {
-	*h = append(*h, value)
-	return nil
-}
-
 var (
 	headerslice headerSlice
 	m           = flag.String("m", "GET", "")
 	headers     = flag.String("h", "", "")
 	body        = flag.String("d", "", "")
 	accept      = flag.String("A", "", "")
-	contentType = flag.String("T", "text/html", "")
+	contentType = flag.String("T", "application/octet-stream", "")
 	authHeader  = flag.String("a", "", "")
 
 	output = flag.String("o", "", "")
 
-	c    = flag.Int("c", 50, "")
-	n    = flag.Int("n", 200, "")
+	c = flag.Int("c", 50, "")
+	n = flag.Int("n", 200, "")
+	// c    = flag.Int("c", 1, "")
+	// n    = flag.Int("n", 1, "")
 	q    = flag.Int("q", 0, "")
 	t    = flag.Int("t", 0, "")
 	cpus = flag.Int("cpus", runtime.GOMAXPROCS(-1), "")
@@ -92,6 +85,17 @@ Options:
   -cpus                 Number of used cpu cores.
                         (default for current machine is %d cores)
 `
+
+type headerSlice []string
+
+func (h *headerSlice) String() string {
+	return fmt.Sprintf("%s", *h)
+}
+
+func (h *headerSlice) Set(value string) error {
+	*h = append(*h, value)
+	return nil
+}
 
 func main() {
 	flag.Usage = func() {
@@ -138,14 +142,14 @@ func main() {
 	}
 
 	// set basic auth if set
-	var username, password string
-	if *authHeader != "" {
-		match, err := parseInputWithRegexp(*authHeader, authRegexp)
-		if err != nil {
-			usageAndExit(err.Error())
-		}
-		username, password = match[1], match[2]
-	}
+	// var username, password string
+	// if *authHeader != "" {
+	// 	match, err := parseInputWithRegexp(*authHeader, authRegexp)
+	// 	if err != nil {
+	// 		usageAndExit(err.Error())
+	// 	}
+	// 	username, password = match[1], match[2]
+	// }
 
 	if *output != "csv" && *output != "" {
 		usageAndExit("Invalid output type; only csv is supported.")
@@ -160,18 +164,16 @@ func main() {
 		}
 	}
 
-	req, err := http.NewRequest(method, url, nil)
-	if err != nil {
-		usageAndExit(err.Error())
-	}
-	req.Header = header
-	if username != "" || password != "" {
-		req.SetBasicAuth(username, password)
-	}
+	bytesBody := parseRequestBody(*body)
+	// if username != "" || password != "" {
+	// 	req.SetBasicAuth(username, password)
+	// }
 
 	(&boomer.Boomer{
-		Request:            req,
-		RequestBody:        *body,
+		Url:                url,
+		Method:             method,
+		Headers:            &header,
+		RequestBody:        bytesBody,
 		N:                  num,
 		C:                  conc,
 		Qps:                q,
@@ -200,4 +202,21 @@ func parseInputWithRegexp(input, regx string) ([]string, error) {
 		return nil, fmt.Errorf("could not parse the provided input; input = %v", input)
 	}
 	return matches, nil
+}
+
+func parseRequestBody(body string) []byte {
+	if body[0] == '{' {
+		var mapValue map[string]interface{}
+		var err error
+		if err = json.Unmarshal([]byte(body), &mapValue); err == nil {
+			if bytesArray, err := bson.Marshal(&mapValue); err == nil {
+				// fmt.Printf("length:%d, %#v\n", len(bytesArray), bytesArray)
+				return bytesArray
+			}
+		}
+		fmt.Println(err)
+		return []byte(body)
+	} else {
+		return []byte(body)
+	}
 }
